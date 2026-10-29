@@ -1,0 +1,164 @@
+name: Build DailyFlow APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Create DailyFlow App & Setup Capacitor
+        run: |
+          mkdir -p www
+          cat << 'EOF' > www/index.html
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+            <title>DailyFlow</title>
+            <script src="https://cdn.tailwindcss.com"></script>
+            <style>
+              body { -webkit-tap-highlight-color: transparent; }
+            </style>
+          </head>
+          <body class="bg-slate-50 text-slate-900 font-sans min-h-screen pb-16">
+            <header class="bg-teal-700 text-white p-5 sticky top-0 z-10 shadow">
+              <h1 class="text-xl font-bold flex items-center justify-between">
+                <span>DailyFlow ✨</span>
+                <span id="date-label" class="text-xs font-normal bg-teal-800 px-2.5 py-1 rounded-full"></span>
+              </h1>
+              <div class="mt-4 bg-teal-800/80 p-3 rounded-xl flex items-center justify-between">
+                <div>
+                  <div class="text-xs text-teal-200 uppercase font-semibold">Today's Progress</div>
+                  <div id="progress-text" class="text-lg font-bold">0 / 0 completed</div>
+                </div>
+                <div id="progress-pct" class="text-2xl font-black">0%</div>
+              </div>
+            </header>
+
+            <main class="p-4 max-w-md mx-auto space-y-4">
+              <div class="flex gap-2 overflow-x-auto pb-1">
+                <button onclick="setFilter('all')" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-bold bg-teal-700 text-white" data-f="all">All</button>
+                <button onclick="setFilter('morning')" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-bold bg-white text-slate-600 border" data-f="morning">Morning</button>
+                <button onclick="setFilter('evening')" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-bold bg-white text-slate-600 border" data-f="evening">Evening</button>
+              </div>
+
+              <div id="habit-list" class="space-y-3"></div>
+
+              <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm mt-6">
+                <h3 class="font-bold text-sm text-slate-800 mb-2">+ Quick Add New Habit</h3>
+                <div class="flex gap-2">
+                  <input id="new-habit" type="text" placeholder="Habit name (e.g. 20 Min Exercise)" class="flex-1 border px-3 py-2 rounded-lg text-sm outline-none focus:border-teal-600">
+                  <button onclick="addHabit()" class="bg-teal-700 text-white px-4 py-2 rounded-lg text-sm font-bold active:scale-95 transition">Add</button>
+                </div>
+              </div>
+            </main>
+
+            <script>
+              let habits = JSON.parse(localStorage.getItem('df_habits') || 'null') || [
+                { id: 1, name: 'Drink 2L Water', period: 'morning', done: false, streak: 3 },
+                { id: 2, name: 'Deep Focus Coding', period: 'morning', done: false, streak: 5 },
+                { id: 3, name: 'Evening Reading (20 mins)', period: 'evening', done: false, streak: 2 }
+              ];
+              let currentFilter = 'all';
+
+              function save() {
+                localStorage.setItem('df_habits', JSON.stringify(habits));
+                render();
+              }
+
+              function toggleHabit(id) {
+                habits = habits.map(h => h.id === id ? { ...h, done: !h.done, streak: !h.done ? h.streak + 1 : Math.max(0, h.streak - 1) } : h);
+                save();
+              }
+
+              function addHabit() {
+                const input = document.getElementById('new-habit');
+                const val = input.value.trim();
+                if (!val) return;
+                habits.push({ id: Date.now(), name: val, period: 'morning', done: false, streak: 0 });
+                input.value = '';
+                save();
+              }
+
+              function setFilter(f) {
+                currentFilter = f;
+                document.querySelectorAll('.tab-btn').forEach(btn => {
+                  if (btn.dataset.f === f) {
+                    btn.className = 'tab-btn px-3 py-1.5 rounded-lg text-xs font-bold bg-teal-700 text-white';
+                  } else {
+                    btn.className = 'tab-btn px-3 py-1.5 rounded-lg text-xs font-bold bg-white text-slate-600 border';
+                  }
+                });
+                render();
+              }
+
+              function render() {
+                document.getElementById('date-label').innerText = new Date().toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' });
+                const filtered = habits.filter(h => currentFilter === 'all' || h.period === currentFilter);
+                const list = document.getElementById('habit-list');
+                list.innerHTML = '';
+
+                let completed = habits.filter(h => h.done).length;
+                let pct = habits.length ? Math.round((completed / habits.length) * 100) : 0;
+                document.getElementById('progress-text').innerText = `${completed} / ${habits.length} completed`;
+                document.getElementById('progress-pct').innerText = `${pct}%`;
+
+                filtered.forEach(h => {
+                  const div = document.createElement('div');
+                  div.className = `p-4 rounded-xl border flex items-center justify-between transition ${h.done ? 'bg-teal-50 border-teal-300' : 'bg-white border-slate-200'}`;
+                  div.innerHTML = `
+                    <div class="flex items-center gap-3">
+                      <button onclick="toggleHabit(${h.id})" class="w-6 h-6 rounded-full border-2 flex items-center justify-center ${h.done ? 'bg-teal-600 border-teal-600 text-white' : 'border-slate-300'}">
+                        ${h.done ? '✓' : ''}
+                      </button>
+                      <div>
+                        <div class="font-semibold text-sm ${h.done ? 'line-through text-slate-400' : 'text-slate-800'}">${h.name}</div>
+                        <div class="text-[11px] text-slate-400 capitalize">${h.period} • 🔥 ${h.streak} day streak</div>
+                      </div>
+                    </div>
+                  `;
+                  list.appendChild(div);
+                });
+              }
+              render();
+            </script>
+          </body>
+          </html>
+          EOF
+
+          npm init -y
+          npm install @capacitor/core@5 @capacitor/cli@5 @capacitor/android@5
+          npx cap init DailyFlow com.dailyflow.app --web-dir www
+          npx cap add android
+          npx cap sync
+
+      - name: Build Android Debug APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload DailyFlow APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: DailyFlow-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
